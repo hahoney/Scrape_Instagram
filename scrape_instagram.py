@@ -1,9 +1,12 @@
 import urllib2
-from selenium import webdriver
 import re
 import time
+from datetime import datetime
+import hashlib
+from selenium import webdriver
 
-TIME_SLEEP = 0.5  # Second
+
+TIME_SLEEP = 1  # Second
 TIME_IMPLICIT_WAIT_LONG = 10  # Second
 TIME_IMPLICIT_WAIT_SHORT = 0.5 # Second
 
@@ -29,6 +32,7 @@ class ScrapeInstagram:
         self.driver = webdriver.Chrome()
         self.driver.implicitly_wait(TIME_IMPLICIT_WAIT_LONG)
         self.resource_urls = []
+        self.job_id = -1
         self.jobs_todo = []
         self.jobs_done = []
 
@@ -55,8 +59,8 @@ class ScrapeInstagram:
             self.driver.find_element_by_class_name(
                 "PhotoGridMoreButton").click()
             time.sleep(TIME_SLEEP)
-            self.driver.execute_script(
-                "javascript:window.scrollTo(0,document.body.scrollHeight);")
+            #self.driver.execute_script(
+            #    "javascript:window.scrollTo(0,document.body.scrollHeight);")
 
         # where the thumbnail link hides
         for link in self.driver.find_elements_by_class_name('pgmiImageLink'):
@@ -103,7 +107,7 @@ class ScrapeInstagram:
                 time.sleep(TIME_SLEEP)
                 self.jobs_todo.remove(resource_url)
                 self.jobs_done.append(resource_url)
-            except IOError as e:
+            except Exception as e:
                 print "File download failed {0}: {1} ".format(e.errno, e.strerror)
 
 
@@ -114,8 +118,11 @@ class ScrapeInstagram:
         :return
         """
         file_name = resource_url.split('/')[-1]
-        download_url = urllib2.urlopen(resource_url)
-        fd = open(file_name, 'wb')
+        try:
+            download_url = urllib2.urlopen(resource_url)
+            fd = open(file_name, 'wb')
+        except Exception as e:
+            raise Exception
 
         meta = download_url.info()
         file_size = int(meta.getheaders("Content-Length")[0])
@@ -142,10 +149,24 @@ class ScrapeInstagram:
         """
         if self.jobs_done or self.jobs_todo:
             print "Unsaved job data found, save job first"
+            return
         elif not job_list and isinstance(job_list, list):
             self.jobs_todo = list(set(job_list))
         else:
             self.jobs_todo = list(set(self.resource_urls))
+
+        self.job_id = hashlib.sha224(str(datetime.now())).hexdigest()
+
+
+    def update_todo_jobs(self):
+        """
+        Update todo job list from resource urls
+        :return:
+        """
+        total_jobs = self.jobs_done + self.jobs_todo
+        for element in self.resource_urls:
+            if element not in total_jobs:
+                self.jobs_todo.append(element)
 
 
     def load_jobs(self, job_filename):
@@ -164,6 +185,8 @@ class ScrapeInstagram:
             for i in range(0, fd.read()):
                 self.jobs_done.append(fd.read())
 
+            self.job_id = fd.read()
+
 
     def save_jobs(self, job_filename):
         """
@@ -181,6 +204,9 @@ class ScrapeInstagram:
             fd.write(str(len(self.jobs_done)) + "\n")
             for job in self.jobs_done:
                 fd.write(str(job) + '\n')
+
+            fd.write(self.job_id)
+
         self.clear_jobs()
 
 
